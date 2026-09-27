@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaxiFlow - Reception Dashboard</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      min-height: 100vh;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px 30px;
+      box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .header h1 {
+      font-size: 28px;
+      font-weight: 800;
+      margin-bottom: 5px;
+    }
+    
+    .header p {
+      opacity: 0.8;
+      font-size: 14px;
+    }
+    
+    .header-nav {
+      display: flex;
+      gap: 15px;
+    }
+    
+    .header-nav a {
+      color: white;
+      text-decoration: none;
+      padding: 8px 15px;
+      border-radius: 4px;
+      transition: background 0.2s;
+    }
+    
+    .header-nav a:hover {
+      background: rgba(255,255,255,0.2);
+    }
+    
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    
+    .user-name {
+      font-weight: 600;
+      font-size: 15px;
+    }
+    
+    .logout-btn {
+      background: rgba(255,255,255,0.2);
+      border: 1px solid rgba(255,255,255,0.5);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    
+    .logout-btn:hover {
+      background: rgba(255,255,255,0.3);
+    }
+    
+    .container {
+      display: grid;
+      grid-template-columns: 400px 1fr 350px;
+      gap: 20px;
+      padding: 20px;
+      height: calc(100vh - 100px);
+      overflow: hidden;
+    }
+    
+    .panel {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    
+    .panel-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid #f0f0f0;
+      font-weight: 700;
+      font-size: 18px;
+      color: #2c3e50;
+    }
+    
+    .panel-content {
+      padding: 20px;
+      flex: 1;
+      overflow-y: auto;
+    }
+    
+    #map {
+      height: 100%;
+      border-radius: 8px;
+    }
+    
+    .form-group {
+      margin-bottom: 15px;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      color: #2c3e50;
+    }
+    
+    input,
+    select,
+    textarea {
+      width: 100%;
+      padding: 12px 14px;
+      border: 2px solid #e8e8e8;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: 'Inter', sans-serif;
+      transition: all 0.3s;
+      background: #fafafa;
+    }
+    
+    input:focus,
+    select:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #667eea;
+      background: white;
+      box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+    }
+    
+    textarea {
+      resize: vertical;
+      min-height: 60px;
+    }
+    
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 14px 20px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      width: 100%;
+      transition: all 0.3s;
+      font-family: 'Inter', sans-serif;
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    }
+    
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    }
+    
+    button:active {
+      transform: translateY(0);
+    }
+    
+    button:disabled {
+      background: #bdc3c7;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    
+    .job-card {
+      background: linear-gradient(135deg, #fafafa 0%, #ffffff 100%);
+      border: 2px solid #f0f0f0;
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 12px;
+      transition: all 0.3s;
+    }
+    
+    .job-card:hover {
+      border-color: #667eea;
+      box-shadow: 0 8px 25px rgba(102, 126, 234, 0.15);
+      transform: translateY(-2px);
+    }
+    
+    .job-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    
+    .job-id {
+      font-weight: 700;
+      color: #667eea;
+      font-size: 15px;
+    }
+    
+    .job-status {
+      padding: 6px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    
+    .status-pending {
+      background: #fff3cd;
+      color: #856404;
+    }
+    
+    .status-scheduled {
+      background: #cce5ff;
+      color: #004085;
+    }
+    
+    .status-dispatched {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+    
+    .status-accepted {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+    
+    .status-arrived {
+      background: #d4edda;
+      color: #155724;
+    }
+    
+    .status-in_progress {
+      background: #d4edda;
+      color: #155724;
+    }
+    
+    .status-completed {
+      background: #d6d8db;
+      color: #383d41;
+    }
+    
+    .job-details {
+      font-size: 13px;
+      color: #555;
+      line-height: 1.6;
+    }
+    
+    .job-details div {
+      margin-bottom: 5px;
+    }
+    
+    .job-price {
+      font-size: 18px;
+      font-weight: 700;
+      color: #667eea;
+      margin-top: 10px;
+    }
+    
+    .driver-card {
+      background: #f8f9fa;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .driver-info {
+      flex: 1;
+    }
+    
+    .driver-name {
+      font-weight: 700;
+      color: #2c3e50;
+      margin-bottom: 4px;
+    }
+    
+    .driver-status {
+      padding: 4px 10px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      display: inline-block;
+      text-transform: uppercase;
+    }
+    
+    .driver-available {
+      background: #d4edda;
+      color: #155724;
+    }
+    
+    .driver-busy {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    
+    .driver-offline {
+      background: #d6d8db;
+      color: #383d41;
+    }
+    
+    .price-breakdown {
+      background: #f0f4ff;
+      padding: 12px;
+      border-radius: 8px;
+      margin-top: 10px;
+      font-size: 13px;
+      border: 1px solid #e8ecff;
+    }
+    
+    .price-breakdown div {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    
+    .price-breakdown div:last-child {
+      margin-bottom: 0;
+      border-top: 1px solid #d4e0ff;
+      padding-top: 6px;
+      font-weight: 700;
+      color: #667eea;
+    }
+    
+    .hint {
+      font-size: 12px;
+      color: #7f8c8d;
+      font-style: italic;
+      margin-top: 5px;
+    }
+    
+    .empty-state {
+      text-align: center;
+      color: #95a5a6;
+      padding: 40px 20px;
+      font-size: 14px;
+    }
+    
+    .address-suggestions {
+      position: absolute;
+      background: white;
+      border: 2px solid #667eea;
+      border-radius: 8px;
+      max-height: 200px;
+      overflow-y: auto;
+      width: calc(100% - 40px);
+      z-index: 1000;
+      display: none;
+      box-shadow: 0 8px 25px rgba(102, 126, 234, 0.2);
+    }
+    
+    .address-suggestions.show {
+      display: block;
+    }
+    
+    .address-suggestion-item {
+      padding: 12px 16px;
+      cursor: pointer;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    
+    .address-suggestion-item:hover {
+      background: #f8f9ff;
+      color: #667eea;
+    }
+    
+    .address-suggestion-item:last-child {
+      border-bottom: none;
+    }
+    
+    .tabs {
+      display: flex;
+      gap: 5px;
+      margin-bottom: 15px;
+      border-bottom: 2px solid #e0e0e0;
+    }
+    
+    .tab {
+      padding: 10px 20px;
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      cursor: pointer;
+      font-weight: 600;
+      color: #7f8c8d;
+      transition: all 0.2s;
+      font-family: 'Inter', sans-serif;
+    }
+    
+    .tab:hover {
+      color: #2c3e50;
+    }
+    
+    .tab.active {
+      color: #667eea;
+      border-bottom-color: #667eea;
+    }
+    
+    .tab-content {
+      display: none;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>🚖 TaxiFlow</h1>
+      <p>Reception Dispatch Dashboard</p>
+    </div>
+    <div class="header-nav">
+      <a href="/analytics">Analytics</a>
+      <a href="/driver">Driver App</a>
+    </div>
+    <div class="user-info">
+      <span class="user-name" id="userName">Loading...</span>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+  </div>
+  
+  <div class="container">
+    <!-- Create Job Panel -->
+    <div class="panel">
+      <div class="panel-header">Create New Job</div>
+      <div class="panel-content">
+        <form id="jobForm">
+          <div class="form-group">
+            <label>Customer Name</label>
+            <input type="text" id="customerName" required>
+          </div>
+          
+          <div class="form-group">
+            <label>Customer Phone</label>
+            <input type="tel" id="customerPhone" required>
+          </div>
+          
+          <div class="form-group">
+            <label>Pickup Location</label>
+            <div style="position: relative;">
+              <input type="text" id="pickupAddress" placeholder="Enter address, postcode, or street" autocomplete="off">
+              <div id="pickupSuggestions" class="address-suggestions"></div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+              <input type="number" step="any" id="pickupLat" placeholder="Latitude" readonly>
+              <input type="number" step="any" id="pickupLng" placeholder="Longitude" readonly>
+            </div>
+            <div class="hint">Type address or click map to set location</div>
+          </div>
+          
+          <div class="form-group">
+            <label>Dropoff Location</label>
+            <div style="position: relative;">
+              <input type="text" id="dropoffAddress" placeholder="Enter address, postcode, or street" autocomplete="off">
+              <div id="dropoffSuggestions" class="address-suggestions"></div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+              <input type="number" step="any" id="dropoffLat" placeholder="Latitude" readonly>
+              <input type="number" step="any" id="dropoffLng" placeholder="Longitude" readonly>
+            </div>
+            <div class="hint">Type address or click map to set location</div>
+          </div>
+          
+          <div class="form-group">
+            <label>Vehicle Type</label>
+            <select id="vehicleType" required>
+              <option value="sedan">Standard Sedan (4 seats)</option>
+              <option value="suv">SUV (6 seats) +40%</option>
+              <option value="van">Van (8 seats) +60%</option>
+              <option value="luxury">Luxury (4 seats) +100%</option>
+              <option value="wheelchair">Wheelchair Accessible +30%</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>Payment Method</label>
+            <select id="paymentMethod" required>
+              <option value="cash">Cash</option>
+              <option value="card">Card</option>
+              <option value="account">Account</option>
+              <option value="app">Mobile App</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>Notes (Optional)</label>
+            <textarea id="notes" placeholder="Any special instructions..."></textarea>
+          </div>
+          
+          <div id="priceEstimate" class="price-breakdown" style="display: none;">
+            <div><strong>Price Estimate</strong></div>
+            <div><span>Distance:</span><span id="estDistance">-</span></div>
+            <div><span>Duration:</span><span id="estDuration">-</span></div>
+            <div><span>Base fare:</span><span id="estBase">-</span></div>
+            <div><span>Time surge:</span><span id="estTimeSurge">-</span></div>
+            <div><span>Weather surge:</span><span id="estWeatherSurge">-</span></div>
+            <div><strong>Total: £<span id="estTotal">0.00</span></strong></div>
+          </div>
+          
+          <button type="submit">Create Job</button>
+        </form>
+      </div>
+    </div>
+    
+    <!-- Map Panel -->
+    <div class="panel">
+      <div class="panel-header">Map View</div>
+      <div class="panel-content" style="padding: 0;">
+        <div id="map"></div>
+      </div>
+    </div>
+    
+    <!-- Jobs and Drivers Panel -->
+    <div class="panel">
+      <div class="panel-header">Active Jobs & Drivers</div>
+      <div class="panel-content">
+        <div class="tabs">
+          <button class="tab active" onclick="switchTab('drivers')">Drivers</button>
+          <button class="tab" onclick="switchTab('jobs')">Jobs</button>
+          <button class="tab" onclick="switchTab('history')">History</button>
+        </div>
+        
+        <div id="driversTab" class="tab-content active">
+          <div id="driversList"></div>
+        </div>
+        
+        <div id="jobsTab" class="tab-content">
+          <div id="jobsList"></div>
+        </div>
+        
+        <div id="historyTab" class="tab-content">
+          <div id="jobHistory"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="reception.js"></script>
+</body>
+</html>

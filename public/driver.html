@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Taxi Driver App</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #f5f5f5;
+    }
+    
+    .header {
+      background: #27ae60;
+      color: white;
+      padding: 15px 20px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .header h1 {
+      font-size: 20px;
+    }
+    
+    .driver-select {
+      background: white;
+      color: #27ae60;
+      border: none;
+      padding: 8px 15px;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    
+    .container {
+      display: grid;
+      grid-template-columns: 400px 1fr;
+      gap: 20px;
+      padding: 20px;
+      height: calc(100vh - 70px);
+    }
+    
+    .panel {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .panel-header {
+      padding: 15px 20px;
+      border-bottom: 1px solid #e0e0e0;
+      font-weight: 600;
+      font-size: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .panel-content {
+      padding: 20px;
+      flex: 1;
+      overflow-y: auto;
+    }
+    
+    #map {
+      height: 100%;
+      border-radius: 8px;
+    }
+    
+    .job-card {
+      background: #f8f9fa;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 15px;
+      transition: all 0.3s;
+    }
+    
+    .job-card:hover {
+      border-color: #27ae60;
+      box-shadow: 0 4px 12px rgba(39, 174, 96, 0.2);
+    }
+    
+    .job-card.assigned {
+      border-color: #3498db;
+      background: #e8f4f8;
+    }
+    
+    .job-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    
+    .job-id {
+      font-weight: 700;
+      font-size: 18px;
+      color: #2c3e50;
+    }
+    
+    .job-price {
+      font-size: 24px;
+      font-weight: 700;
+      color: #27ae60;
+    }
+    
+    .job-details {
+      margin-bottom: 15px;
+      line-height: 1.8;
+      font-size: 14px;
+    }
+    
+    .job-details-row {
+      display: flex;
+      margin-bottom: 8px;
+    }
+    
+    .job-details-label {
+      font-weight: 600;
+      min-width: 90px;
+      color: #555;
+    }
+    
+    .job-details-value {
+      color: #333;
+    }
+    
+    .job-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    
+    .btn {
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .btn-accept {
+      background: #27ae60;
+      color: white;
+    }
+    
+    .btn-accept:hover {
+      background: #229954;
+    }
+    
+    .btn-decline {
+      background: #e74c3c;
+      color: white;
+    }
+    
+    .btn-decline:hover {
+      background: #c0392b;
+    }
+    
+    .btn-complete {
+      background: #3498db;
+      color: white;
+      grid-column: 1 / -1;
+    }
+    
+    .btn-complete:hover {
+      background: #2980b9;
+    }
+    
+    .btn-navigate {
+      background: #9b59b6;
+      color: white;
+    }
+    
+    .btn-navigate:hover {
+      background: #8e44ad;
+    }
+    
+    .btn-arrived {
+      background: #f39c12;
+      color: white;
+    }
+    
+    .btn-arrived:hover {
+      background: #e67e22;
+    }
+    
+    .btn-pickup {
+      background: #16a085;
+      color: white;
+    }
+    
+    .btn-pickup:hover {
+      background: #138d75;
+    }
+    
+    .btn:disabled {
+      background: #bdc3c7;
+      cursor: not-allowed;
+    }
+    
+    .empty-state {
+      text-align: center;
+      color: #95a5a6;
+      padding: 60px 20px;
+      font-size: 16px;
+    }
+    
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 15px;
+    }
+    
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-left: 10px;
+    }
+    
+    .badge-new {
+      background: #fff3cd;
+      color: #856404;
+    }
+    
+    .badge-assigned {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+    
+    .section-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #7f8c8d;
+      margin: 20px 0 10px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    
+    .section-title:first-child {
+      margin-top: 0;
+    }
+    
+    .info-badge {
+      background: #3498db;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>🚗 Driver App</h1>
+      <div id="earningsDisplay" style="font-size: 14px; margin-top: 5px; opacity: 0.9;"></div>
+    </div>
+    <div style="display: flex; gap: 15px; align-items: center;">
+      <button class="btn" id="shiftToggle" style="width: auto; padding: 8px 20px; background: #27ae60;" onclick="toggleShift()">Start Shift</button>
+      <select class="driver-select" id="driverSelect">
+        <option value="">Select Driver...</option>
+      </select>
+    </div>
+  </div>
+  
+  <div class="container">
+    <!-- Jobs Panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>Available Jobs</span>
+        <span class="info-badge" id="jobCount">0</span>
+      </div>
+      <div class="panel-content" id="jobsContainer">
+        <div class="empty-state">
+          <div class="empty-state-icon">📱</div>
+          <div>Select your driver profile to start</div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Map Panel -->
+    <div class="panel">
+      <div class="panel-header">Navigation</div>
+      <div class="panel-content" style="padding: 0;">
+        <div id="map"></div>
+      </div>
+    </div>
+  </div>
+  
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="driver.js"></script>
+</body>
+</html>
