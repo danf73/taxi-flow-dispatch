@@ -3,6 +3,10 @@ const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
+const bcrypt = require('bcryptjs');
+const Database = require('better-sqlite3');
+require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
@@ -11,22 +15,64 @@ const wss = new WebSocket.Server({ server });
 app.use(express.json());
 app.use(express.static('public'));
 
-// Authentication data
-let users = [
-  { id: 1, username: 'admin', password: hashPassword('admin123'), name: 'Admin User', role: 'staff' },
-  { id: 2, username: 'dispatcher', password: hashPassword('dispatch123'), name: 'Dispatcher One', role: 'staff' }
-];
+// Staff accounts and sessions are persisted locally and never committed to git.
+const databasePath = process.env.AUTH_DB_PATH || path.join(__dirname, 'data', 'taxiflow.sqlite');
+fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+const db = new Database(databasePath);
+db.pragma('journal_mode = WAL');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE,
+    password_hash TEXT,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'staff',
+    github_id TEXT UNIQUE,
+    github_login TEXT,
+    email TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+`);
 
-let sessions = new Map(); // token -> { userId, role, expiresAt }
-
-// Simple password hashing (in production, use bcrypt)
-function hashPassword(password) {
-  return crypto.createHash('sha256').update(password).digest('hex');
+if (process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD) {
+  const existingAdmin = db.prepare('SELECT id FROM users WHERE username = ?').get(process.env.ADMIN_USERNAME);
+  if (!existingAdmin) {
+    db.prepare('INSERT INTO users (username, password_hash, name) VALUES (?, ?, ?)').run(
+      process.env.ADMIN_USERNAME,
+      bcrypt.hashSync(process.env.ADMIN_PASSWORD, 12),
+      process.env.ADMIN_NAME || process.env.ADMIN_USERNAME
+    );
+  }
 }
 
 // Generate auth token
 function generateToken() {
   return crypto.randomBytes(32).toString('hex');
+}
+
+function createSession(userId, role, remember) {
+  const token = generateToken();
+  const expiresAt = Date.now() + (remember ? 30 : 1) * 24 * 60 * 60 * 1000;
+  db.prepare('INSERT INTO sessions (token, user_id, role, expires_at) VALUES (?, ?, ?, ?)')
+    .run(token, userId, role, expiresAt);
+  return token;
+}
+
+function getSession(token) {
+  if (!token) return null;
+  const session = db.prepare('SELECT token, user_id AS userId, role, expires_at AS expiresAt FROM sessions WHERE token = ?').get(token);
+  if (!session || session.expiresAt < Date.now()) {
+    if (session) db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+    return null;
+  }
+  return session;
 }
 
 // Verify auth middleware
@@ -37,10 +83,9 @@ function verifyAuth(req, res, next) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   
-  const session = sessions.get(token);
+  const session = getSession(token);
   
   if (!session || session.expiresAt < Date.now()) {
-    sessions.delete(token);
     return res.status(401).json({ error: 'Session expired' });
   }
   
@@ -220,24 +265,84 @@ wss.on('connection', (ws) => {
 });
 
 // Authentication routes
+const githubStates = new Map();
+
+app.get('/api/auth/github', (req, res) => {
+  if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) {
+    return res.status(503).json({ error: 'GitHub login is not configured' });
+  }
+
+  const state = generateToken();
+  githubStates.set(state, Date.now() + 10 * 60 * 1000);
+  const redirectUri = process.env.GITHUB_CALLBACK_URL || `${req.protocol}://${req.get('host')}/api/auth/github/callback`;
+  const params = new URLSearchParams({
+    client_id: process.env.GITHUB_CLIENT_ID,
+    redirect_uri: redirectUri,
+    scope: 'read:user user:email',
+    state
+  });
+  res.redirect(`https://github.com/login/oauth/authorize?${params}`);
+});
+
+app.get('/api/auth/github/callback', async (req, res) => {
+  const { code, state } = req.query;
+  const stateExpiresAt = githubStates.get(state);
+  githubStates.delete(state);
+
+  if (!code || !stateExpiresAt || stateExpiresAt < Date.now()) {
+    return res.redirect('/login?github=error');
+  }
+
+  try {
+    const fetch = (await import('node-fetch')).default;
+    const redirectUri = process.env.GITHUB_CALLBACK_URL || `${req.protocol}://${req.get('host')}/api/auth/github/callback`;
+    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code,
+        redirect_uri: redirectUri
+      })
+    });
+    const tokenData = await tokenResponse.json();
+    if (!tokenData.access_token) throw new Error('GitHub token exchange failed');
+
+    const githubHeaders = { Authorization: `Bearer ${tokenData.access_token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'TaxiFlow' };
+    const profile = await (await fetch('https://api.github.com/user', { headers: githubHeaders })).json();
+    const emails = await (await fetch('https://api.github.com/user/emails', { headers: githubHeaders })).json();
+    const email = profile.email || emails.find(item => item.primary)?.email || null;
+    let user = db.prepare('SELECT * FROM users WHERE github_id = ?').get(String(profile.id));
+
+    if (user) {
+      db.prepare('UPDATE users SET name = ?, github_login = ?, email = ? WHERE id = ?')
+        .run(profile.name || profile.login, profile.login, email, user.id);
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+    } else {
+      const result = db.prepare('INSERT INTO users (name, role, github_id, github_login, email) VALUES (?, \'staff\', ?, ?, ?)')
+        .run(profile.name || profile.login, String(profile.id), profile.login, email);
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+    }
+
+    const authToken = createSession(user.id, user.role, true);
+    res.redirect(`/login?github=success&token=${encodeURIComponent(authToken)}`);
+  } catch (error) {
+    console.error('GitHub login error:', error);
+    res.redirect('/login?github=error');
+  }
+});
+
 app.post('/api/auth/login/staff', (req, res) => {
   const { username, password, remember } = req.body;
-  
-  const user = users.find(u => u.username === username && u.role === 'staff');
-  
-  if (!user || user.password !== hashPassword(password)) {
+
+  const user = db.prepare('SELECT * FROM users WHERE username = ? AND role = \'staff\'').get(username);
+
+  if (!user || !user.password_hash || !bcrypt.compareSync(password || '', user.password_hash)) {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
-  
-  const token = generateToken();
-  const expiresAt = Date.now() + (remember ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000); // 30 days or 1 day
-  
-  sessions.set(token, {
-    userId: user.id,
-    role: user.role,
-    expiresAt
-  });
-  
+
+  const token = createSession(user.id, user.role, remember);
   res.json({
     token,
     user: {
@@ -258,15 +363,7 @@ app.post('/api/auth/login/driver', (req, res) => {
     return res.status(401).json({ error: 'Invalid PIN' });
   }
   
-  const token = generateToken();
-  const expiresAt = Date.now() + (remember ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000);
-  
-  sessions.set(token, {
-    userId: driver.id,
-    role: 'driver',
-    expiresAt
-  });
-  
+  const token = createSession(driver.id, 'driver', remember);
   res.json({
     token,
     user: {
@@ -280,7 +377,7 @@ app.post('/api/auth/login/driver', (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (token) {
-    sessions.delete(token);
+    db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
   }
   res.json({ success: true });
 });
@@ -292,16 +389,15 @@ app.get('/api/auth/verify', (req, res) => {
     return res.status(401).json({ error: 'No token' });
   }
   
-  const session = sessions.get(token);
+  const session = getSession(token);
   
   if (!session || session.expiresAt < Date.now()) {
-    sessions.delete(token);
     return res.status(401).json({ error: 'Session expired' });
   }
   
   let user;
   if (session.role === 'staff') {
-    user = users.find(u => u.id === session.userId);
+    user = db.prepare('SELECT id, name, username, role FROM users WHERE id = ?').get(session.userId);
   } else if (session.role === 'driver') {
     user = drivers.find(d => d.id === session.userId);
   }

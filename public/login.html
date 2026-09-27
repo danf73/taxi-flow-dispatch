@@ -213,6 +213,15 @@
     .btn:active {
       transform: translateY(0);
     }
+
+    .github-btn {
+      display: block;
+      margin-top: 12px;
+      background: #24292f;
+      text-align: center;
+      text-decoration: none;
+      box-shadow: none;
+    }
     
     .error {
       background: #fee;
@@ -312,6 +321,7 @@
         </div>
         
         <button type="submit" class="btn">Sign In to Dashboard</button>
+        <a class="btn github-btn" href="/api/auth/github">Continue with GitHub</a>
       </form>
       
       <!-- Driver Login Form -->
@@ -342,6 +352,18 @@
   </div>
   
   <script>
+    const loginParams = new URLSearchParams(window.location.search);
+    const githubToken = loginParams.get('token');
+    if (loginParams.get('github') === 'success' && githubToken) {
+      localStorage.setItem('authToken', githubToken);
+      localStorage.setItem('userRole', 'staff');
+      window.history.replaceState({}, document.title, '/login');
+      window.location.href = '/';
+    } else if (loginParams.get('github') === 'error') {
+      showError('GitHub login could not be completed. Please try again.');
+      window.history.replaceState({}, document.title, '/login');
+    }
+
     // Load drivers for dropdown
     async function loadDrivers() {
       const response = await fetch('/api/drivers');
